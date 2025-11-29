@@ -5,6 +5,15 @@ import { Client, Invoice, InvoiceItem, Company } from '../types';
 import { storageService } from '../services/storageService';
 import { generateInvoicePDF } from '../services/pdfService';
 
+// Interface locale pour permettre la saisie de chaînes (ex: "12.") avant validation
+interface EditableInvoiceItem {
+  id: string;
+  description: string;
+  unit: string;
+  quantity: number | string;
+  unitPrice: number | string;
+}
+
 interface InvoiceGeneratorProps {
   onSaved: () => void;
   editingInvoiceId?: string | null;
@@ -27,7 +36,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
   const [tvaApplicable, setTvaApplicable] = useState(true);
   const [currency, setCurrency] = useState<'TND' | 'EUR'>('TND'); // État indépendant pour la devise
   
-  const [items, setItems] = useState<InvoiceItem[]>([
+  const [items, setItems] = useState<EditableInvoiceItem[]>([
     { id: '1', description: '', unit: 'U', quantity: 1, unitPrice: 0 }
   ]);
   const [tvaRate, setTvaRate] = useState(19);
@@ -69,6 +78,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
         setInvoiceNumber(invoiceToEdit.number);
         setInvoiceDate(invoiceToEdit.date);
         setDueDate(invoiceToEdit.dueDate);
+        // Conversion implicite compatible avec EditableInvoiceItem
         setItems(invoiceToEdit.items.map(item => ({...item, unit: item.unit || 'U'})));
         setTvaRate(invoiceToEdit.tvaRate);
         setNotes(invoiceToEdit.notes || '');
@@ -113,14 +123,14 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
     }
   };
 
-  const updateItem = (id: string, field: keyof InvoiceItem, value: any) => {
+  const updateItem = (id: string, field: keyof EditableInvoiceItem, value: any) => {
     setItems(items.map(item => 
       item.id === id ? { ...item, [field]: value } : item
     ));
   };
 
   const calculateSubtotal = () => {
-    return items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+    return items.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.unitPrice)), 0);
   };
 
   const calculateTotal = () => {
@@ -142,6 +152,15 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
     const selectedClient = clients.find(c => c.id === selectedClientId);
     if (!selectedClient) return;
 
+    // Conversion des items en format strict (number) pour la sauvegarde
+    const strictItems: InvoiceItem[] = items.map(item => ({
+      id: item.id,
+      description: item.description,
+      unit: item.unit,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unitPrice)
+    }));
+
     const invoiceData: Invoice = {
       id: editingInvoiceId || Date.now().toString(),
       type: docType,
@@ -151,7 +170,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
       clientId: selectedClientId,
       clientSnap: selectedClient,
       companySnap: currentCompany,
-      items: items,
+      items: strictItems,
       tvaApplicable: tvaApplicable,
       tvaRate: tvaRate,
       notes: notes,
@@ -429,9 +448,9 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
                   <td className="px-2 py-2">
                     <input
                       type="number"
-                      min="1"
+                      min="0"
                       value={item.quantity}
-                      onChange={(e) => updateItem(item.id, 'quantity', Number(e.target.value))}
+                      onChange={(e) => updateItem(item.id, 'quantity', e.target.value)} // Retrait du Number() pour permettre les décimales
                       className="w-full bg-transparent border-none focus:ring-0 p-1 text-center text-gray-800 font-medium"
                     />
                   </td>
@@ -441,12 +460,12 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
                       min="0"
                       step={step}
                       value={item.unitPrice}
-                      onChange={(e) => updateItem(item.id, 'unitPrice', Number(e.target.value))}
+                      onChange={(e) => updateItem(item.id, 'unitPrice', e.target.value)} // Retrait du Number() pour permettre les décimales
                       className="w-full bg-transparent border-none focus:ring-0 p-1 text-right text-gray-800"
                     />
                   </td>
                   <td className="px-4 py-2 text-right font-medium text-gray-800">
-                    {(item.quantity * item.unitPrice).toFixed(decimals)}
+                    {(Number(item.quantity) * Number(item.unitPrice)).toFixed(decimals)}
                   </td>
                   <td className="text-center">
                     <button
