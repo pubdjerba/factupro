@@ -159,59 +159,79 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
   };
 
   const handleSave = (download: boolean) => {
+    // 1. Validation de base
     if (!selectedClientId) {
-      alert('Veuillez sélectionner un client');
+      alert('Veuillez sélectionner un client.');
       return;
     }
     if (!currentCompany) {
-        alert('Veuillez sélectionner une entreprise émettrice');
+        alert('Veuillez sélectionner une entreprise émettrice.');
         return;
     }
 
+    // 2. Vérification existence client
     const selectedClient = clients.find(c => c.id === selectedClientId);
-    if (!selectedClient) return;
-
-    // Conversion stricte des inputs (nettoyage virgules)
-    const strictItems: InvoiceItem[] = items.map(item => ({
-      id: item.id,
-      description: item.description,
-      unit: item.unit,
-      quantity: parseNumber(item.quantity),
-      unitPrice: parseNumber(item.unitPrice)
-    }));
-
-    const invoiceData: Invoice = {
-      id: editingInvoiceId || Date.now().toString(),
-      type: docType,
-      number: invoiceNumber,
-      date: invoiceDate,
-      dueDate: dueDate,
-      clientId: selectedClientId,
-      clientSnap: selectedClient,
-      companySnap: currentCompany,
-      items: strictItems,
-      tvaApplicable: tvaApplicable,
-      tvaRate: tvaRate,
-      notes: notes,
-      status: 'en_attente',
-      currency: currency
-    };
-
-    let invoices = storageService.getInvoices();
-    
-    if (editingInvoiceId) {
-      invoices = invoices.map(inv => inv.id === editingInvoiceId ? invoiceData : inv);
-    } else {
-      invoices = [invoiceData, ...invoices];
-    }
-    
-    storageService.saveInvoices(invoices);
-
-    if (download) {
-      generateInvoicePDF(invoiceData);
+    if (!selectedClient) {
+      alert("Erreur critique : Le client sélectionné est introuvable dans la base (peut-être a-t-il été supprimé ?). Veuillez sélectionner un client existant.");
+      return;
     }
 
-    onSaved();
+    // 3. Préparation des données
+    try {
+      // Conversion stricte des inputs (nettoyage virgules)
+      const strictItems: InvoiceItem[] = items.map(item => ({
+        id: item.id,
+        description: item.description,
+        unit: item.unit,
+        quantity: parseNumber(item.quantity),
+        unitPrice: parseNumber(item.unitPrice)
+      }));
+
+      const invoiceData: Invoice = {
+        id: editingInvoiceId || Date.now().toString(),
+        type: docType,
+        number: invoiceNumber,
+        date: invoiceDate,
+        dueDate: dueDate,
+        clientId: selectedClientId,
+        clientSnap: selectedClient,
+        companySnap: currentCompany,
+        items: strictItems,
+        tvaApplicable: tvaApplicable,
+        tvaRate: tvaRate,
+        notes: notes,
+        status: 'en_attente',
+        currency: currency
+      };
+
+      // 4. Sauvegarde
+      let invoices = storageService.getInvoices();
+      
+      if (editingInvoiceId) {
+        invoices = invoices.map(inv => inv.id === editingInvoiceId ? invoiceData : inv);
+      } else {
+        invoices = [invoiceData, ...invoices];
+      }
+      
+      storageService.saveInvoices(invoices);
+
+      // 5. Génération PDF (optionnelle)
+      if (download) {
+        try {
+          generateInvoicePDF(invoiceData);
+        } catch (pdfError) {
+          console.error("Erreur génération PDF:", pdfError);
+          alert("Le document a été sauvegardé, mais la génération du PDF a échoué. Vérifiez que vous n'utilisez pas de caractères spéciaux non supportés.");
+        }
+      }
+
+      // 6. Finalisation
+      onSaved();
+
+    } catch (error) {
+      console.error("Erreur lors de la sauvegarde :", error);
+      alert("Une erreur est survenue lors de la sauvegarde. Si vous avez ajouté de grosses images (logos, papier en-tête), le stockage local est peut-être plein.");
+    }
   };
 
   if (companies.length === 0) {
