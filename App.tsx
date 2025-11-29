@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import ClientManager from './components/ClientManager';
@@ -23,8 +24,7 @@ const App: React.FC = () => {
       const invoices = storageService.getInvoices();
       const clients = storageService.getClients();
       
-      // Calcul du CA (Uniquement sur les factures, pas les devis, ou tout mélangé selon préférence)
-      // Ici on mélange tout pour "Volume d'affaire global"
+      // Calcul du CA (sommaire simple, ignore la conversion de devise pour l'instant et somme tout)
       const revenue = invoices.reduce((acc, inv) => {
         const subtotal = inv.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
         const applyTva = inv.tvaApplicable !== false;
@@ -75,6 +75,11 @@ const App: React.FC = () => {
         return <Settings />;
       case 'dashboard':
       default:
+        // Pour l'affichage global, on utilise la devise de l'entreprise par défaut
+        const defaultCompany = storageService.getDefaultCompany();
+        const symbol = defaultCompany.currency === 'EUR' ? '€' : 'DT';
+        const decimals = defaultCompany.currency === 'EUR' ? 2 : 3;
+        
         return (
           <div className="max-w-5xl mx-auto">
             <div className="mb-8">
@@ -109,7 +114,7 @@ const App: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 font-medium">Volume Global (Est.)</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.totalRevenue.toFixed(3)} DT</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.totalRevenue.toFixed(decimals)} {symbol}</p>
                 </div>
               </div>
             </div>

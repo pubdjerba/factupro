@@ -93,13 +93,25 @@ const numberToWords = (n: number): string => {
   return s;
 };
 
-const convertAmountToText = (amount: number): string => {
+const convertAmountToText = (amount: number, currency: 'TND' | 'EUR' = 'TND'): string => {
   const intPart = Math.floor(amount);
-  const decPart = Math.round((amount - intPart) * 1000);
   
-  let text = numberToWords(intPart) + " Dinars";
+  // Calcul de la partie décimale selon la devise
+  let decPart: number;
+  if (currency === 'EUR') {
+    // 2 décimales pour l'Euro
+    decPart = Math.round((amount - intPart) * 100);
+  } else {
+    // 3 décimales pour le Dinar (Millimes)
+    decPart = Math.round((amount - intPart) * 1000);
+  }
+  
+  const mainUnit = currency === 'EUR' ? 'Euros' : 'Dinars';
+  const subUnit = currency === 'EUR' ? 'Centimes' : 'Millimes';
+  
+  let text = numberToWords(intPart) + " " + mainUnit;
   if (decPart > 0) {
-    text += " et " + numberToWords(decPart) + " Millimes";
+    text += " et " + numberToWords(decPart) + " " + subUnit;
   }
   return text;
 };
@@ -116,30 +128,50 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   const isDevis = docType === 'devis';
   // Default to true if undefined
   const applyTva = invoice.tvaApplicable !== false;
-
-  // --- COIN GAUCHE : Entreprise ---
-  doc.setFontSize(16);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(41, 128, 185); // Bleu professionnel
-  doc.text(company.name.toUpperCase(), 14, 20);
-
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(80); // Gris foncé
-  doc.text(company.address, 14, 26);
-  doc.text(`MF: ${company.mf}`, 14, 31);
   
-  // Dynamic vertical positioning for optional fields
-  let yPos = 36;
-  if (company.phone) {
-    doc.text(`Tél: ${company.phone}`, 14, yPos);
-    yPos += 5;
-  }
-  if (company.email) {
-    doc.text(company.email, 14, yPos);
+  // Currency settings: Use invoice.currency if available, fallback to company, then default
+  const currency = invoice.currency || company.currency || 'TND';
+  const currencySymbol = currency === 'EUR' ? '€' : 'DT';
+  const decimals = currency === 'EUR' ? 2 : 3;
+
+  // --- 1. PAPIER EN TÊTE (ARRIÈRE-PLAN) ---
+  if (company.letterheadUrl) {
+    try {
+      // Ajout de l'image en fond pleine page A4 (210x297 mm)
+      // On assume que c'est du JPEG ou PNG. jsPDF détecte souvent auto, mais on force JPEG si string base64 standard
+      doc.addImage(company.letterheadUrl, 'JPEG', 0, 0, 210, 297);
+    } catch (e) {
+      console.error("Erreur lors de l'ajout du papier en tête", e);
+    }
   }
 
-  // --- COIN DROIT : Titre Facture/Devis & Infos ---
+  // --- 2. COIN GAUCHE : Entreprise (Affichage conditionnel) ---
+  // On n'affiche ces infos que si l'utilisateur n'a pas demandé de les masquer (cas où elles sont déjà sur l'image)
+  if (!company.hideCompanyInfoOnPdf) {
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(41, 128, 185); // Bleu professionnel
+    doc.text(company.name.toUpperCase(), 14, 20);
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80); // Gris foncé
+    doc.text(company.address, 14, 26);
+    doc.text(`MF: ${company.mf}`, 14, 31);
+    
+    // Dynamic vertical positioning for optional fields
+    let yPos = 36;
+    if (company.phone) {
+      doc.text(`Tél: ${company.phone}`, 14, yPos);
+      yPos += 5;
+    }
+    if (company.email) {
+      doc.text(company.email, 14, yPos);
+    }
+  }
+
+  // --- 3. COIN DROIT : Titre Facture/Devis & Infos ---
+  // Ces infos sont toujours nécessaires, même avec un papier en tête
   doc.setFontSize(22);
   doc.setFont("helvetica", "bold");
   
@@ -166,10 +198,17 @@ export const generateInvoicePDF = (invoice: Invoice) => {
     doc.text(`${label} ${invoice.dueDate}`, 196, 45, { align: "right" });
   }
 
-  // Ligne de séparation décorative
-  doc.setDrawColor(41, 128, 185);
-  doc.setLineWidth(0.5);
-  doc.line(14, 50, 196, 50);
+  // Ligne de séparation décorative (optionnelle si papier en tête, mais souvent utile pour structurer)
+  if (!company.letterheadUrl) {
+      doc.setDrawColor(41, 128, 185);
+      doc.setLineWidth(0.5);
+      doc.line(14, 50, 196, 50);
+  } else {
+      // Si papier en tête, on met une ligne plus discrète ou rien, gardons discret
+      doc.setDrawColor(200);
+      doc.setLineWidth(0.1);
+      doc.line(140, 50, 196, 50);
+  }
 
   // --- SECTION CLIENT (Droite, sous la ligne) ---
   doc.setFontSize(10);
@@ -200,8 +239,8 @@ export const generateInvoicePDF = (invoice: Invoice) => {
       item.description,
       item.unit || 'U',
       item.quantity,
-      item.unitPrice.toFixed(3),
-      itemTotal.toFixed(3)
+      item.unitPrice.toFixed(decimals),
+      itemTotal.toFixed(decimals)
     ]);
   });
 
@@ -209,7 +248,7 @@ export const generateInvoicePDF = (invoice: Invoice) => {
     head: [headers],
     body: tableRows,
     startY: 90,
-    theme: 'plain',
+    theme: 'plain', // Theme simple pour mieux s'intégrer aux papiers en tête
     headStyles: { 
         fillColor: [245, 245, 245],
         textColor: [0, 0, 0],
@@ -223,7 +262,9 @@ export const generateInvoicePDF = (invoice: Invoice) => {
         valign: 'middle',
         lineWidth: 0.1,
         lineColor: [230, 230, 230],
-        cellPadding: 3
+        cellPadding: 3,
+        // Fond transparent pour le corps du tableau pour voir le papier en tête ? 
+        // Non, souvent illisible. Gardons blanc ou transparent si désiré, ici blanc par défaut du theme plain
     },
     columnStyles: {
         0: { cellWidth: 'auto', halign: 'left' },
@@ -254,10 +295,10 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   if (applyTva) {
     // Affichage Classique avec TVA
     doc.text("Total HT :", labelX, finalY, { align: "right" });
-    doc.text(`${subtotal.toFixed(3)} DT`, valueX, finalY, { align: "right" });
+    doc.text(`${subtotal.toFixed(decimals)} ${currencySymbol}`, valueX, finalY, { align: "right" });
 
     doc.text(`TVA (${invoice.tvaRate}%) :`, labelX, finalY + lineHeight, { align: "right" });
-    doc.text(`${tvaAmount.toFixed(3)} DT`, valueX, finalY + lineHeight, { align: "right" });
+    doc.text(`${tvaAmount.toFixed(decimals)} ${currencySymbol}`, valueX, finalY + lineHeight, { align: "right" });
 
     // Box Total TTC
     doc.setFillColor(245, 247, 250);
@@ -267,7 +308,7 @@ export const generateInvoicePDF = (invoice: Invoice) => {
     doc.setFont("helvetica", "bold");
     doc.setTextColor(41, 128, 185);
     doc.text("Total TTC :", labelX, finalY + lineHeight * 2.5, { align: "right" });
-    doc.text(`${totalFinal.toFixed(3)} DT`, valueX, finalY + lineHeight * 2.5, { align: "right" });
+    doc.text(`${totalFinal.toFixed(decimals)} ${currencySymbol}`, valueX, finalY + lineHeight * 2.5, { align: "right" });
 
   } else {
     // Affichage Sans TVA
@@ -279,13 +320,13 @@ export const generateInvoicePDF = (invoice: Invoice) => {
     doc.setFont("helvetica", "bold");
     doc.setTextColor(41, 128, 185);
     doc.text("Net à Payer :", labelX, finalY + 3, { align: "right" });
-    doc.text(`${totalFinal.toFixed(3)} DT`, valueX, finalY + 3, { align: "right" });
+    doc.text(`${totalFinal.toFixed(decimals)} ${currencySymbol}`, valueX, finalY + 3, { align: "right" });
   }
 
   // -- Amount in Words --
   doc.setFontSize(10);
   doc.setTextColor(60);
-  const amountInWords = convertAmountToText(totalFinal);
+  const amountInWords = convertAmountToText(totalFinal, currency);
   
   // Position text depending on TVA lines
   const wordStartY = applyTva ? finalY + 30 : finalY + 20;
@@ -311,7 +352,6 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   }
   
   // --- Génération du nom de fichier : Entreprise + F/D + Numéro ---
-  // Nettoyage du nom de l'entreprise pour qu'il soit valide dans un nom de fichier
   const safeCompanyName = company.name.replace(/[^a-z0-9]/gi, '_').toUpperCase();
   const prefix = isDevis ? 'D' : 'F';
   const fileName = `${safeCompanyName}_${prefix}-${invoice.number}.pdf`;

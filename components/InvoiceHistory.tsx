@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { Download, Trash2, FileText, Pencil } from 'lucide-react';
 import { Invoice } from '../types';
@@ -62,6 +63,11 @@ const InvoiceHistory: React.FC<InvoiceHistoryProps> = ({ onEdit }) => {
                 const applyTva = invoice.tvaApplicable !== false;
                 const total = applyTva ? subtotal * (1 + invoice.tvaRate/100) : subtotal;
                 
+                // Determine currency formatting (Use invoice.currency, fallback to company, fallback to TND)
+                const currency = invoice.currency || invoice.companySnap.currency || 'TND';
+                const symbol = currency === 'EUR' ? '€' : 'DT';
+                const decimals = currency === 'EUR' ? 2 : 3;
+                
                 return (
                   <tr key={invoice.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -77,7 +83,7 @@ const InvoiceHistory: React.FC<InvoiceHistoryProps> = ({ onEdit }) => {
                       {invoice.date}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">
-                      {total.toFixed(3)} DT
+                      {total.toFixed(decimals)} {symbol}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                       <div className="flex justify-center gap-3">

@@ -14,7 +14,8 @@ const DEFAULT_COMPANY: Company = {
   address: "123 Rue du Commerce, 1000 Tunis",
   email: "contact@masociete.com",
   phone: "+216 71 000 000",
-  isDefault: true
+  isDefault: true,
+  currency: 'TND'
 };
 
 export const storageService = {
@@ -63,7 +64,8 @@ export const storageService = {
         const migratedCompany: Company = {
           ...oldSettings,
           id: Date.now().toString(),
-          isDefault: true
+          isDefault: true,
+          currency: 'TND'
         };
         // Sauvegarder dans le nouveau format
         localStorage.setItem(STORAGE_KEYS.COMPANIES, JSON.stringify([migratedCompany]));

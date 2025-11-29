@@ -17,6 +17,11 @@ export interface Company {
   phone?: string;
   logoUrl?: string;
   isDefault?: boolean;
+  currency?: 'TND' | 'EUR'; // Devise par défaut de l'entreprise
+  
+  // Nouveaux champs pour le papier en tête
+  letterheadUrl?: string; // Image de fond (Base64)
+  hideCompanyInfoOnPdf?: boolean; // Masquer les infos textes si le papier en tête les contient déjà
 }
 
 export interface InvoiceItem {
@@ -41,6 +46,7 @@ export interface Invoice {
   tvaRate: number;
   notes?: string;
   status: 'brouillon' | 'payée' | 'en_attente' | 'accepté' | 'refusé';
+  currency: 'TND' | 'EUR'; // La devise spécifique de cette facture
 }
 
 export type ViewState = 'dashboard' | 'clients' | 'create-invoice' | 'history' | 'settings';

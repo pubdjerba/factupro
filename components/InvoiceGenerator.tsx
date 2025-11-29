@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Save, Download, Calendar, FileType, CheckSquare, Square, Building2 } from 'lucide-react';
+import { Plus, Trash2, Save, Download, CheckSquare, Square, Building2, Coins } from 'lucide-react';
 import { Client, Invoice, InvoiceItem, Company } from '../types';
 import { storageService } from '../services/storageService';
 import { generateInvoicePDF } from '../services/pdfService';
@@ -25,6 +25,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
   // Document Settings
   const [docType, setDocType] = useState<'facture' | 'devis'>('facture');
   const [tvaApplicable, setTvaApplicable] = useState(true);
+  const [currency, setCurrency] = useState<'TND' | 'EUR'>('TND'); // État indépendant pour la devise
   
   const [items, setItems] = useState<InvoiceItem[]>([
     { id: '1', description: '', unit: 'U', quantity: 1, unitPrice: 0 }
@@ -34,6 +35,11 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
+
+  // Helpers pour la devise (basés sur l'état local currency, pas sur l'entreprise)
+  const currencySymbol = currency === 'EUR' ? '€' : 'DT';
+  const decimals = currency === 'EUR' ? 2 : 3;
+  const step = currency === 'EUR' ? "0.01" : "0.001";
 
   // Load Initial Data
   useEffect(() => {
@@ -50,15 +56,13 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
       if (invoiceToEdit) {
         setDocType(invoiceToEdit.type || 'facture');
         setTvaApplicable(invoiceToEdit.tvaApplicable !== false);
+        setCurrency(invoiceToEdit.currency || 'TND'); // Charger la devise de la facture
         setSelectedClientId(invoiceToEdit.clientId);
         
-        // Tenter de trouver l'entreprise par ID, sinon fallback sur celle stockée dans le snapshot
         const companyId = invoiceToEdit.companySnap?.id;
         if (companyId && loadedCompanies.some(c => c.id === companyId)) {
             setSelectedCompanyId(companyId);
         } else {
-            // Cas rare : entreprise supprimée ou ancien format. On met la première dispo.
-            // On pourrait aussi ne rien mettre et laisser l'utilisateur choisir.
              if (loadedCompanies.length > 0) setSelectedCompanyId(loadedCompanies[0].id);
         }
 
@@ -70,10 +74,12 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
         setNotes(invoiceToEdit.notes || '');
       }
     } else {
-      // Mode Création : Sélectionner l'entreprise par défaut
+      // Mode Création
       const defaultCompany = loadedCompanies.find(c => c.isDefault) || loadedCompanies[0];
       if (defaultCompany) {
         setSelectedCompanyId(defaultCompany.id);
+        // On initialise avec la devise par défaut de l'entreprise, mais l'utilisateur peut changer
+        setCurrency(defaultCompany.currency || 'TND');
       }
 
       const existingInvoices = storageService.getInvoices();
@@ -88,8 +94,14 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
     if (selectedCompanyId) {
         const comp = companies.find(c => c.id === selectedCompanyId);
         setCurrentCompany(comp || null);
+        
+        // Optionnel : si on crée une nouvelle facture (pas d'édition), on peut pré-sélectionner la devise de l'entreprise
+        // Mais l'utilisateur a demandé l'indépendance, donc on ne force pas le changement si on est en cours d'édition
+        if (!editingInvoiceId && comp && comp.currency) {
+            setCurrency(comp.currency);
+        }
     }
-  }, [selectedCompanyId, companies]);
+  }, [selectedCompanyId, companies, editingInvoiceId]);
 
   const addItem = () => {
     setItems([...items, { id: Date.now().toString(), description: '', unit: 'U', quantity: 1, unitPrice: 0 }]);
@@ -138,12 +150,13 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
       dueDate: dueDate,
       clientId: selectedClientId,
       clientSnap: selectedClient,
-      companySnap: currentCompany, // Snapshot de l'entreprise sélectionnée
+      companySnap: currentCompany,
       items: items,
       tvaApplicable: tvaApplicable,
       tvaRate: tvaRate,
       notes: notes,
-      status: 'en_attente'
+      status: 'en_attente',
+      currency: currency // Sauvegarde de la devise choisie
     };
 
     let invoices = storageService.getInvoices();
@@ -190,7 +203,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
         </div>
       </div>
 
-      {/* SELECTEUR ENTREPRISE (NOUVEAU) */}
+      {/* SELECTEUR ENTREPRISE */}
       <div className="mb-6 bg-white p-4 rounded-lg shadow-sm border border-blue-100 flex items-center gap-4">
          <div className="p-2 bg-blue-50 text-blue-600 rounded">
             <Building2 size={24} />
@@ -211,9 +224,10 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
          </div>
       </div>
 
-      {/* Document Controls */}
+      {/* Document Controls (Type, Devise, Fiscalité) */}
       <div className="bg-white rounded-t-sm shadow-sm border border-gray-200 border-b-0 p-6 flex flex-wrap gap-6 items-center bg-gray-50">
         
+        {/* Type Select */}
         <div className="flex items-center gap-3">
           <span className="text-sm font-semibold text-gray-600 uppercase tracking-wide">Type :</span>
           <div className="flex bg-white rounded-lg p-1 border border-gray-200">
@@ -240,6 +254,36 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
           </div>
         </div>
 
+        {/* Currency Select (INDEPENDANT) */}
+        <div className="flex items-center gap-3 border-l border-gray-200 pl-6">
+          <span className="text-sm font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1">
+             <Coins size={16} /> Devise :
+          </span>
+          <div className="flex bg-white rounded-lg p-1 border border-gray-200">
+            <button
+              onClick={() => setCurrency('TND')}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                currency === 'TND' 
+                  ? 'bg-emerald-600 text-white shadow-sm' 
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              TND (DT)
+            </button>
+            <button
+              onClick={() => setCurrency('EUR')}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                currency === 'EUR' 
+                  ? 'bg-indigo-600 text-white shadow-sm' 
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              EUR (€)
+            </button>
+          </div>
+        </div>
+
+        {/* TVA Toggle */}
         <div className="flex items-center gap-3 border-l border-gray-200 pl-6">
           <span className="text-sm font-semibold text-gray-600 uppercase tracking-wide">Fiscalité :</span>
           <button
@@ -252,7 +296,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
           >
              {tvaApplicable ? <CheckSquare size={18} /> : <Square size={18} />}
              <span className="text-sm font-medium">
-                {tvaApplicable ? 'Avec TVA' : 'Sans TVA (Net à Payer)'}
+                {tvaApplicable ? 'Avec TVA' : 'Sans TVA'}
              </span>
           </button>
         </div>
@@ -264,7 +308,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
         {/* Header Section: Company Left, Invoice Info Right */}
         <div className="flex flex-col md:flex-row justify-between items-start mb-12 gap-8">
           
-          {/* Coin Gauche: Entreprise (Dynamique selon sélection) */}
+          {/* Coin Gauche: Entreprise */}
           <div className="w-full md:w-1/2">
              {currentCompany ? (
                  <div className="border-l-4 border-blue-600 pl-4 py-1 transition-all">
@@ -357,8 +401,8 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
                 <th className="px-4 py-3 text-left w-[42%]">Désignation</th>
                 <th className="px-2 py-3 text-center w-[8%]">U</th>
                 <th className="px-2 py-3 text-center w-[10%]">Qté</th>
-                <th className="px-4 py-3 text-center w-[20%]">Prix Unit. {tvaApplicable ? 'HT' : ''}</th>
-                <th className="px-4 py-3 text-center w-[20%]">Total {tvaApplicable ? 'HT' : ''}</th>
+                <th className="px-4 py-3 text-center w-[20%]">Prix Unit. {tvaApplicable ? 'HT' : ''} ({currencySymbol})</th>
+                <th className="px-4 py-3 text-center w-[20%]">Total {tvaApplicable ? 'HT' : ''} ({currencySymbol})</th>
                 <th className="w-8"></th>
               </tr>
             </thead>
@@ -395,14 +439,14 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
                     <input
                       type="number"
                       min="0"
-                      step="0.001"
+                      step={step}
                       value={item.unitPrice}
                       onChange={(e) => updateItem(item.id, 'unitPrice', Number(e.target.value))}
                       className="w-full bg-transparent border-none focus:ring-0 p-1 text-right text-gray-800"
                     />
                   </td>
                   <td className="px-4 py-2 text-right font-medium text-gray-800">
-                    {(item.quantity * item.unitPrice).toFixed(3)}
+                    {(item.quantity * item.unitPrice).toFixed(decimals)}
                   </td>
                   <td className="text-center">
                     <button
@@ -442,7 +486,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
                <>
                  <div className="flex justify-between text-sm text-gray-600">
                     <span>Total HT</span>
-                    <span className="font-medium">{calculateSubtotal().toFixed(3)} DT</span>
+                    <span className="font-medium">{calculateSubtotal().toFixed(decimals)} {currencySymbol}</span>
                  </div>
                  
                  <div className="flex justify-between items-center text-sm text-gray-600">
@@ -456,18 +500,18 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
                       />
                       <span>%</span>
                     </div>
-                    <span className="font-medium">{(calculateSubtotal() * (tvaRate / 100)).toFixed(3)} DT</span>
+                    <span className="font-medium">{(calculateSubtotal() * (tvaRate / 100)).toFixed(decimals)} {currencySymbol}</span>
                  </div>
 
                  <div className="flex justify-between text-lg font-bold text-gray-900 border-t border-gray-200 pt-4">
                    <span>Total TTC</span>
-                   <span className="text-blue-600">{calculateTotal().toFixed(3)} DT</span>
+                   <span className="text-blue-600">{calculateTotal().toFixed(decimals)} {currencySymbol}</span>
                  </div>
                </>
              ) : (
                <div className="flex justify-between text-lg font-bold text-gray-900 border-t border-gray-200 pt-4">
                    <span>Net à Payer</span>
-                   <span className="text-blue-600">{calculateTotal().toFixed(3)} DT</span>
+                   <span className="text-blue-600">{calculateTotal().toFixed(decimals)} {currencySymbol}</span>
                </div>
              )}
           </div>
