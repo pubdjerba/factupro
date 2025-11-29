@@ -138,7 +138,6 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   if (company.letterheadUrl) {
     try {
       // Ajout de l'image en fond pleine page A4 (210x297 mm)
-      // On assume que c'est du JPEG ou PNG. jsPDF détecte souvent auto, mais on force JPEG si string base64 standard
       doc.addImage(company.letterheadUrl, 'JPEG', 0, 0, 210, 297);
     } catch (e) {
       console.error("Erreur lors de l'ajout du papier en tête", e);
@@ -146,32 +145,43 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   }
 
   // --- 2. COIN GAUCHE : Entreprise (Affichage conditionnel) ---
-  // On n'affiche ces infos que si l'utilisateur n'a pas demandé de les masquer (cas où elles sont déjà sur l'image)
+  // On n'affiche ces infos que si l'utilisateur n'a pas demandé de les masquer
   if (!company.hideCompanyInfoOnPdf) {
+    const companyX = 14;
+    let companyY = 20;
+    const companyWidth = 90; // max width for company column
+
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(41, 128, 185); // Bleu professionnel
-    doc.text(company.name.toUpperCase(), 14, 20);
+    
+    // Split text pour éviter chevauchement si nom très long
+    const nameLines = doc.splitTextToSize(company.name.toUpperCase(), companyWidth);
+    doc.text(nameLines, companyX, companyY);
+    companyY += (nameLines.length * 6);
 
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(80); // Gris foncé
-    doc.text(company.address, 14, 26);
-    doc.text(`MF: ${company.mf}`, 14, 31);
     
-    // Dynamic vertical positioning for optional fields
-    let yPos = 36;
+    // Adresse multiligne
+    const addressLines = doc.splitTextToSize(company.address, companyWidth);
+    doc.text(addressLines, companyX, companyY);
+    companyY += (addressLines.length * 5); // 5mm par ligne
+
+    doc.text(`MF: ${company.mf}`, companyX, companyY);
+    companyY += 5;
+    
     if (company.phone) {
-      doc.text(`Tél: ${company.phone}`, 14, yPos);
-      yPos += 5;
+      doc.text(`Tél: ${company.phone}`, companyX, companyY);
+      companyY += 5;
     }
     if (company.email) {
-      doc.text(company.email, 14, yPos);
+      doc.text(company.email, companyX, companyY);
     }
   }
 
   // --- 3. COIN DROIT : Titre Facture/Devis & Infos ---
-  // Ces infos sont toujours nécessaires, même avec un papier en tête
   doc.setFontSize(22);
   doc.setFont("helvetica", "bold");
   
@@ -192,43 +202,64 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   doc.setFontSize(10);
   doc.text(`Date : ${invoice.date}`, 196, 40, { align: "right" });
   
-  // Echéance ou Validité
   if (invoice.dueDate) {
     const label = isDevis ? "Validité jusqu'au :" : "Échéance :";
     doc.text(`${label} ${invoice.dueDate}`, 196, 45, { align: "right" });
   }
 
-  // Ligne de séparation décorative (optionnelle si papier en tête, mais souvent utile pour structurer)
+  // Ligne de séparation
   if (!company.letterheadUrl) {
       doc.setDrawColor(41, 128, 185);
       doc.setLineWidth(0.5);
       doc.line(14, 50, 196, 50);
   } else {
-      // Si papier en tête, on met une ligne plus discrète ou rien, gardons discret
       doc.setDrawColor(200);
       doc.setLineWidth(0.1);
       doc.line(140, 50, 196, 50);
   }
 
   // --- SECTION CLIENT (Droite, sous la ligne) ---
+  // CORRECTION : Gestion dynamique de la hauteur pour éviter le chevauchement
+  const clientX = 120;
+  const clientWidth = 75; // Largeur de la colonne client
+  let clientY = 60;
+
   doc.setFontSize(10);
   doc.setTextColor(100);
-  doc.text(isDevis ? "Devis pour :" : "Facturé à :", 120, 60);
+  doc.text(isDevis ? "Devis pour :" : "Facturé à :", clientX, clientY);
+  clientY += 6;
   
   doc.setFontSize(12);
   doc.setTextColor(0);
   doc.setFont("helvetica", "bold");
-  doc.text(client.name, 120, 66);
+  
+  // Nom du client (multiligne si besoin)
+  const clientNameLines = doc.splitTextToSize(client.name, clientWidth);
+  doc.text(clientNameLines, clientX, clientY);
+  // On ajuste Y en fonction du nombre de lignes du nom
+  clientY += (clientNameLines.length * 6); // ~6mm par ligne pour police 12
   
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(60);
-  doc.text(client.address, 120, 72);
-  doc.text(`MF: ${client.mf}`, 120, 77);
+  
+  // Adresse client (multiligne si besoin)
+  const clientAddressLines = doc.splitTextToSize(client.address, clientWidth);
+  doc.text(clientAddressLines, clientX, clientY);
+  // On ajuste Y en fonction du nombre de lignes de l'adresse
+  clientY += (clientAddressLines.length * 5); // ~5mm par ligne pour police 10
+  
+  // Un petit espace supplémentaire avant le MF pour la lisibilité
+  clientY += 1; 
+
+  doc.text(`MF: ${client.mf}`, clientX, clientY);
 
   // -- Table Items --
+  // On s'assure que le tableau ne commence pas trop haut si l'entête client est très longue
+  // Le tableau commence généralement à 90, mais si clientY est descendu plus bas, on pousse.
+  const startTableY = Math.max(90, clientY + 15);
+
   const headers = ["Désignation", "U", "Qté", "Prix Unit.", "Total HT"];
-  
   const tableRows: any[] = [];
   let subtotal = 0;
   
@@ -247,8 +278,8 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   autoTable(doc, {
     head: [headers],
     body: tableRows,
-    startY: 90,
-    theme: 'plain', // Theme simple pour mieux s'intégrer aux papiers en tête
+    startY: startTableY,
+    theme: 'plain',
     headStyles: { 
         fillColor: [245, 245, 245],
         textColor: [0, 0, 0],
@@ -263,8 +294,6 @@ export const generateInvoicePDF = (invoice: Invoice) => {
         lineWidth: 0.1,
         lineColor: [230, 230, 230],
         cellPadding: 3,
-        // Fond transparent pour le corps du tableau pour voir le papier en tête ? 
-        // Non, souvent illisible. Gardons blanc ou transparent si désiré, ici blanc par défaut du theme plain
     },
     columnStyles: {
         0: { cellWidth: 'auto', halign: 'left' },
@@ -276,12 +305,10 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   });
 
   // -- Totals --
-  // Abaissement du Total HT (plus d'espace après le tableau)
   const finalY = (doc as any).lastAutoTable.finalY + 19;
   const tvaAmount = applyTva ? subtotal * (invoice.tvaRate / 100) : 0;
   const totalFinal = subtotal + tvaAmount;
 
-  // Ligne de séparation avant totaux
   doc.setDrawColor(200);
   doc.line(140, finalY - 6, 196, finalY - 6);
 
@@ -293,14 +320,12 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   const lineHeight = 6;
 
   if (applyTva) {
-    // Affichage Classique avec TVA
     doc.text("Total HT :", labelX, finalY, { align: "right" });
     doc.text(`${subtotal.toFixed(decimals)} ${currencySymbol}`, valueX, finalY, { align: "right" });
 
     doc.text(`TVA (${invoice.tvaRate}%) :`, labelX, finalY + lineHeight, { align: "right" });
     doc.text(`${tvaAmount.toFixed(decimals)} ${currencySymbol}`, valueX, finalY + lineHeight, { align: "right" });
 
-    // Box Total TTC
     doc.setFillColor(245, 247, 250);
     doc.rect(130, finalY + lineHeight * 1.5, 66, 10, 'F');
     
@@ -311,8 +336,6 @@ export const generateInvoicePDF = (invoice: Invoice) => {
     doc.text(`${totalFinal.toFixed(decimals)} ${currencySymbol}`, valueX, finalY + lineHeight * 2.5, { align: "right" });
 
   } else {
-    // Affichage Sans TVA
-    // Box Net à Payer directement
     doc.setFillColor(245, 247, 250);
     doc.rect(130, finalY - 4, 66, 10, 'F');
     
@@ -328,7 +351,6 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   doc.setTextColor(60);
   const amountInWords = convertAmountToText(totalFinal, currency);
   
-  // Position text depending on TVA lines
   const wordStartY = applyTva ? finalY + 30 : finalY + 20;
   
   doc.setFont("helvetica", "bold"); 
@@ -351,7 +373,6 @@ export const generateInvoicePDF = (invoice: Invoice) => {
     doc.text(invoice.notes, 14, wordStartY + 25);
   }
   
-  // --- Génération du nom de fichier : Entreprise + F/D + Numéro ---
   const safeCompanyName = company.name.replace(/[^a-z0-9]/gi, '_').toUpperCase();
   const prefix = isDevis ? 'D' : 'F';
   const fileName = `${safeCompanyName}_${prefix}-${invoice.number}.pdf`;
