@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Search, MapPin, Hash } from 'lucide-react';
 import { Client } from '../types';
@@ -60,7 +61,7 @@ const ClientManager: React.FC = () => {
 
   const filteredClients = clients.filter(c => 
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    c.mf.toLowerCase().includes(searchTerm.toLowerCase())
+    (c.mf && c.mf.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
@@ -84,20 +85,19 @@ const ClientManager: React.FC = () => {
             <h3 className="text-xl font-semibold mb-4 text-gray-800">{isEditing ? 'Modifier' : 'Ajouter'} un Client</h3>
             <form onSubmit={handleSave} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nom de l'entreprise</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nom de l'entreprise / Client</label>
                 <input
                   required
                   type="text"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                   value={formData.name}
                   onChange={e => setFormData({...formData, name: e.target.value})}
-                  placeholder="Ex: Société Exemple"
+                  placeholder="Ex: Société Exemple ou Mr Foulen"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Matricule Fiscal (MF)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Matricule Fiscal (MF) (Optionnel)</label>
                 <input
-                  required
                   type="text"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                   value={formData.mf}
@@ -178,10 +178,12 @@ const ClientManager: React.FC = () => {
               <div className="flex justify-between items-start">
                 <div>
                   <h3 className="font-bold text-lg text-gray-800">{client.name}</h3>
-                  <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
-                    <Hash size={14} />
-                    <span>MF: {client.mf}</span>
-                  </div>
+                  {client.mf && (
+                    <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
+                      <Hash size={14} />
+                      <span>MF: {client.mf}</span>
+                    </div>
+                  )}
                   <div className="flex items-start gap-2 text-sm text-gray-500 mt-1">
                     <MapPin size={14} className="mt-0.5" />
                     <span>{client.address}</span>

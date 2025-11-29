@@ -252,7 +252,9 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   // Un petit espace supplémentaire avant le MF pour la lisibilité
   clientY += 1; 
 
-  doc.text(`MF: ${client.mf}`, clientX, clientY);
+  if (client.mf) {
+      doc.text(`MF: ${client.mf}`, clientX, clientY);
+  }
 
   // -- Table Items --
   // On s'assure que le tableau ne commence pas trop haut si l'entête client est très longue
