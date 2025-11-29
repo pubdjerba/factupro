@@ -60,7 +60,7 @@ const ClientManager: React.FC = () => {
   };
 
   const filteredClients = clients.filter(c => 
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (c.name && c.name.toLowerCase().includes(searchTerm.toLowerCase())) || 
     (c.mf && c.mf.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
@@ -177,7 +177,7 @@ const ClientManager: React.FC = () => {
             <div key={client.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start">
                 <div>
-                  <h3 className="font-bold text-lg text-gray-800">{client.name}</h3>
+                  <h3 className="font-bold text-lg text-gray-800">{client.name || 'Nom manquant'}</h3>
                   {client.mf && (
                     <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
                       <Hash size={14} />

@@ -58,13 +58,13 @@ const InvoiceHistory: React.FC<InvoiceHistoryProps> = ({ onEdit }) => {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {invoices.map((invoice) => {
-                const subtotal = invoice.items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0);
-                // Backward compatibility: if tvaApplicable undefined, assume true
+                // Safe calculations
+                const subtotal = (invoice.items || []).reduce((acc, item) => acc + (Number(item?.quantity || 0) * Number(item?.unitPrice || 0)), 0);
                 const applyTva = invoice.tvaApplicable !== false;
-                const total = applyTva ? subtotal * (1 + invoice.tvaRate/100) : subtotal;
+                const total = applyTva ? subtotal * (1 + (invoice.tvaRate || 0)/100) : subtotal;
                 
-                // Determine currency formatting (Use invoice.currency, fallback to company, fallback to TND)
-                const currency = invoice.currency || invoice.companySnap.currency || 'TND';
+                // Determine currency formatting
+                const currency = invoice.currency || invoice.companySnap?.currency || 'TND';
                 const symbol = currency === 'EUR' ? '€' : 'DT';
                 const decimals = currency === 'EUR' ? 2 : 3;
                 
@@ -77,7 +77,7 @@ const InvoiceHistory: React.FC<InvoiceHistoryProps> = ({ onEdit }) => {
                       {invoice.number}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {invoice.clientSnap.name}
+                      {invoice.clientSnap?.name || 'Client Inconnu'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {invoice.date}

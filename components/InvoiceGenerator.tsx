@@ -5,7 +5,7 @@ import { Client, Invoice, InvoiceItem, Company } from '../types';
 import { storageService } from '../services/storageService';
 import { generateInvoicePDF } from '../services/pdfService';
 
-// Interface locale pour permettre la saisie de chaînes (ex: "12.") avant validation
+// Interface locale pour permettre la saisie de chaînes avec virgules
 interface EditableInvoiceItem {
   id: string;
   description: string;
@@ -13,6 +13,16 @@ interface EditableInvoiceItem {
   quantity: number | string;
   unitPrice: number | string;
 }
+
+// Helper pour parser les nombres (accepte "12.5" et "12,5")
+const parseNumber = (value: number | string): number => {
+  if (typeof value === 'number') return value;
+  if (!value) return 0;
+  // Remplace la virgule par un point et convertit
+  const cleanValue = value.replace(/,/g, '.');
+  const num = parseFloat(cleanValue);
+  return isNaN(num) ? 0 : num;
+};
 
 interface InvoiceGeneratorProps {
   onSaved: () => void;
@@ -45,7 +55,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
 
-  // Helpers pour la devise (basés sur l'état local currency, pas sur l'entreprise)
+  // Helpers pour la devise
   const currencySymbol = currency === 'EUR' ? '€' : 'DT';
   const decimals = currency === 'EUR' ? 2 : 3;
   const step = currency === 'EUR' ? "0.01" : "0.001";
@@ -65,7 +75,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
       if (invoiceToEdit) {
         setDocType(invoiceToEdit.type || 'facture');
         setTvaApplicable(invoiceToEdit.tvaApplicable !== false);
-        setCurrency(invoiceToEdit.currency || 'TND'); // Charger la devise de la facture
+        setCurrency(invoiceToEdit.currency || 'TND');
         setSelectedClientId(invoiceToEdit.clientId);
         
         const companyId = invoiceToEdit.companySnap?.id;
@@ -78,8 +88,17 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
         setInvoiceNumber(invoiceToEdit.number);
         setInvoiceDate(invoiceToEdit.date);
         setDueDate(invoiceToEdit.dueDate);
-        // Conversion implicite compatible avec EditableInvoiceItem
-        setItems(invoiceToEdit.items.map(item => ({...item, unit: item.unit || 'U'})));
+        
+        // Sécurisation du chargement des items (gestion des nulls éventuels)
+        const safeItems = (invoiceToEdit.items || []).map(item => ({
+            ...item, 
+            unit: item.unit || 'U',
+            // On s'assure que quantity/price ne sont jamais null pour les inputs
+            quantity: item.quantity ?? 0, 
+            unitPrice: item.unitPrice ?? 0
+        }));
+        setItems(safeItems);
+
         setTvaRate(invoiceToEdit.tvaRate);
         setNotes(invoiceToEdit.notes || '');
       }
@@ -88,7 +107,6 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
       const defaultCompany = loadedCompanies.find(c => c.isDefault) || loadedCompanies[0];
       if (defaultCompany) {
         setSelectedCompanyId(defaultCompany.id);
-        // On initialise avec la devise par défaut de l'entreprise, mais l'utilisateur peut changer
         setCurrency(defaultCompany.currency || 'TND');
       }
 
@@ -104,9 +122,6 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
     if (selectedCompanyId) {
         const comp = companies.find(c => c.id === selectedCompanyId);
         setCurrentCompany(comp || null);
-        
-        // Optionnel : si on crée une nouvelle facture (pas d'édition), on peut pré-sélectionner la devise de l'entreprise
-        // Mais l'utilisateur a demandé l'indépendance, donc on ne force pas le changement si on est en cours d'édition
         if (!editingInvoiceId && comp && comp.currency) {
             setCurrency(comp.currency);
         }
@@ -130,7 +145,11 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
   };
 
   const calculateSubtotal = () => {
-    return items.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.unitPrice)), 0);
+    return items.reduce((sum, item) => {
+        const qty = parseNumber(item.quantity);
+        const price = parseNumber(item.unitPrice);
+        return sum + (qty * price);
+    }, 0);
   };
 
   const calculateTotal = () => {
@@ -152,13 +171,13 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
     const selectedClient = clients.find(c => c.id === selectedClientId);
     if (!selectedClient) return;
 
-    // Conversion des items en format strict (number) pour la sauvegarde
+    // Conversion stricte des inputs (nettoyage virgules)
     const strictItems: InvoiceItem[] = items.map(item => ({
       id: item.id,
       description: item.description,
       unit: item.unit,
-      quantity: Number(item.quantity),
-      unitPrice: Number(item.unitPrice)
+      quantity: parseNumber(item.quantity),
+      unitPrice: parseNumber(item.unitPrice)
     }));
 
     const invoiceData: Invoice = {
@@ -175,7 +194,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
       tvaRate: tvaRate,
       notes: notes,
       status: 'en_attente',
-      currency: currency // Sauvegarde de la devise choisie
+      currency: currency
     };
 
     let invoices = storageService.getInvoices();
@@ -273,7 +292,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
           </div>
         </div>
 
-        {/* Currency Select (INDEPENDANT) */}
+        {/* Currency Select */}
         <div className="flex items-center gap-3 border-l border-gray-200 pl-6">
           <span className="text-sm font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1">
              <Coins size={16} /> Devise :
@@ -324,10 +343,10 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
       {/* Paper Document Container */}
       <div className="bg-white rounded-b-sm shadow-lg border border-gray-200 p-10 min-h-[29.7cm] relative">
         
-        {/* Header Section: Company Left, Invoice Info Right */}
+        {/* Header Section */}
         <div className="flex flex-col md:flex-row justify-between items-start mb-12 gap-8">
           
-          {/* Coin Gauche: Entreprise */}
+          {/* Entreprise */}
           <div className="w-full md:w-1/2">
              {currentCompany ? (
                  <div className="border-l-4 border-blue-600 pl-4 py-1 transition-all">
@@ -344,7 +363,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
              )}
           </div>
 
-          {/* Coin Droit: Facture Infos */}
+          {/* Facture Infos */}
           <div className="w-full md:w-1/3 text-right">
             <h1 className={`text-4xl font-bold mb-4 tracking-widest ${docType === 'devis' ? 'text-slate-300' : 'text-gray-200'}`}>
               {docType === 'devis' ? 'DEVIS' : 'FACTURE'}
@@ -398,7 +417,9 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
             >
               <option value="">-- Sélectionner un client --</option>
               {clients.map(client => (
-                <option key={client.id} value={client.id}>{client.name}</option>
+                <option key={client.id} value={client.id}>
+                    {client.name || 'Client sans nom'}
+                </option>
               ))}
             </select>
             
@@ -406,7 +427,9 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
               <div className="text-sm text-gray-700 mt-2 pl-1">
                 <p className="font-bold">{clients.find(c => c.id === selectedClientId)?.name}</p>
                 <p className="text-gray-500">{clients.find(c => c.id === selectedClientId)?.address}</p>
-                <p className="text-gray-500 text-xs mt-1">MF: {clients.find(c => c.id === selectedClientId)?.mf}</p>
+                <p className="text-gray-500 text-xs mt-1">
+                    {clients.find(c => c.id === selectedClientId)?.mf && `MF: ${clients.find(c => c.id === selectedClientId)?.mf}`}
+                </p>
               </div>
             )}
           </div>
@@ -447,25 +470,24 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onSaved, editingInv
                   </td>
                   <td className="px-2 py-2">
                     <input
-                      type="number"
-                      min="0"
+                      type="text" // Changé en text pour permettre la virgule
                       value={item.quantity}
-                      onChange={(e) => updateItem(item.id, 'quantity', e.target.value)} // Retrait du Number() pour permettre les décimales
+                      onChange={(e) => updateItem(item.id, 'quantity', e.target.value)}
                       className="w-full bg-transparent border-none focus:ring-0 p-1 text-center text-gray-800 font-medium"
+                      placeholder="0"
                     />
                   </td>
                   <td className="px-4 py-2">
                     <input
-                      type="number"
-                      min="0"
-                      step={step}
+                      type="text" // Changé en text pour permettre la virgule
                       value={item.unitPrice}
-                      onChange={(e) => updateItem(item.id, 'unitPrice', e.target.value)} // Retrait du Number() pour permettre les décimales
+                      onChange={(e) => updateItem(item.id, 'unitPrice', e.target.value)}
                       className="w-full bg-transparent border-none focus:ring-0 p-1 text-right text-gray-800"
+                      placeholder="0.000"
                     />
                   </td>
                   <td className="px-4 py-2 text-right font-medium text-gray-800">
-                    {(Number(item.quantity) * Number(item.unitPrice)).toFixed(decimals)}
+                    {(parseNumber(item.quantity) * parseNumber(item.unitPrice)).toFixed(decimals)}
                   </td>
                   <td className="text-center">
                     <button
